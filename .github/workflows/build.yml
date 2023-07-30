@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-windows:
+    runs-on: windows-2022
+
+    strategy:
+      matrix:
+        include:
+          - build-flavour: Debug
+          - build-flavour: Release
+
+    steps:
+      - name: Setup variables
+        uses: actions/github-script@v6
+        with:
+          script: core.exportVariable('GITHUB_SHA_SHORT', context.sha.substring(0, 7))
+
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: recursive
+
+      - name: Setup Windows 10 SDK
+        uses: GuillaumeFalourd/setup-windows10-sdk-action@v1.11
+        with:
+          sdk-version: 19041
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v1.1
+
+      - name: Download WDK
+        run: Invoke-WebRequest -Uri https://go.microsoft.com/fwlink/?linkid=2026156 -OutFile wdksetup.exe
+
+      - name: Install WDK
+        run: ./wdksetup.exe /features OptionId.WindowsDriverKitComplete
+
+      - name: Build dxwrapper
+        run: msbuild dxwrapper.vcxproj -verbosity:n -property:Configuration=${{matrix.build-flavour}}
+
+      - name: Build stubs
+        run: msbuild Stub/stub.vcxproj -verbosity:n -property:Configuration=${{matrix.build-flavour}}
+
+      - name: Copy files
+        run: |
+          mkdir .\out 
+          cp bin\${{matrix.build-flavour}}\Build\* .\out
+          cp Stub\bin\${{matrix.build-flavour}}\* .\out\Stub
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v3
+        with:
+          name: dxwrapper-${{env.GITHUB_SHA_SHORT}}-${{github.run_number}}-${{matrix.build-flavour}}
+          path: |
+            .\out\*
